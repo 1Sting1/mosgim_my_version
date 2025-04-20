@@ -17,7 +17,9 @@ def logger_configuration() -> None:
 
 
 class CreateLCP:
-    def __init__(self, nbig: int, mbig: int, nT: int) -> None:
+    """Class for creating Linear Combination Problem for spherical harmonics."""
+    
+    def __init__(self, max_order: int, max_degree: int, time_steps: int) -> None:
         """
         Parameters
         ----------
@@ -28,14 +30,23 @@ class CreateLCP:
         nT : int
             Number of time steps
         """
-        self.__nbig = nbig
-        self.__mbig = mbig
-        self.__nT = nT
+        self._max_order = max_order
+        self._max_degree = max_degree
+        self._time_steps = time_steps
 
-        self.__vcoefs = np.vectorize(self.__calc_coefs, excluded=[
-                                     'M', 'N'], otypes=[np.ndarray])
+        self._vector_coefs = np.vectorize(
+            self._calculate_coefficients, 
+            excluded=['M', 'N'], 
+            otypes=[np.ndarray]
+        )
 
-    def __calc_coefs(self, M, N, theta, phi):
+    def _calculate_coefficients(
+        self, 
+        M: np.ndarray, 
+        N: np.ndarray, 
+        theta: float, 
+        phi: float
+    ) -> np.ndarray:
         """
         Parameters
         ----------
@@ -48,18 +59,18 @@ class CreateLCP:
         phi
             Array of co latitudes of IPPs in rads
         """
-        n_coefs = len(M)
-        a = np.zeros(n_coefs)
+        num_coefficients = len(M)
+        coefficients = np.zeros(num_coefficients)
 
-        # complex harmonics on meshgrid
-        Ymn = sp.sph_harm(np.abs(M), N, theta, phi)
+        # Calculate complex spherical harmonics on meshgrid
+        spherical_harmonics = sp.sph_harm(np.abs(M), N, theta, phi)
 
-        #  introducing real basis according to scipy normalization
-        a[M < 0] = Ymn[M < 0].imag * np.sqrt(2) * (-1.) ** M[M < 0]
-        a[M > 0] = Ymn[M > 0].real * np.sqrt(2) * (-1.) ** M[M > 0]
-        a[M == 0] = Ymn[M == 0].real
+        # Convert to real basis according to scipy normalization
+        coefficients[M < 0] = spherical_harmonics[M < 0].imag * np.sqrt(2) * (-1.) ** M[M < 0]
+        coefficients[M > 0] = spherical_harmonics[M > 0].real * np.sqrt(2) * (-1.) ** M[M > 0]
+        coefficients[M == 0] = spherical_harmonics[M == 0].real
 
-        return a
+        return coefficients
 
     def construct(self, theta, phi, timeindex):
         """
@@ -74,8 +85,8 @@ class CreateLCP:
         """
 
         # Construct matrix of the problem (A)
-        n_ind = np.arange(0, self.__nbig + 1, 1)
-        m_ind = np.arange(-self.__mbig, self.__mbig + 1, 1)
+        n_ind = np.arange(0, self._max_order + 1, 1)
+        m_ind = np.arange(-self._max_degree, self._max_degree + 1, 1)
         M, N = np.meshgrid(m_ind, n_ind)
         Y = sp.sph_harm(np.abs(M), N, 0, 0)
         idx = np.isfinite(Y)
@@ -85,7 +96,7 @@ class CreateLCP:
 
         len_rhs = len(phi)
 
-        a = self.__vcoefs(M=M, N=N, theta=theta, phi=phi)
+        a = self._vector_coefs(M=M, N=N, theta=theta, phi=phi)
 
         logger.info(f"coefs done {n_coefs}")
 
@@ -103,7 +114,7 @@ class CreateLCP:
                                                              * n_coefs, (timeindex[i] + 1) * n_coefs, 1).astype('int32')
 
         A = csr_matrix((data, (rowi, coli)), shape=(
-            len_rhs, (self.__nT + 1) * n_coefs))
+            len_rhs, (self._time_steps + 1) * n_coefs))
 
         logger.success("matrix (A) done")
 
@@ -123,7 +134,7 @@ def create_lcp(data):
     time_m = np.array([int(_ / (len(colat) * len(mlt)))
                       for _ in range(len(colat) * len(mlt) * (nT + 1))])
 
-    G = CreateLCP(nbig=15, mbig=15, nT=nT).construct(
+    G = CreateLCP(max_order=15, max_degree=15, time_steps=nT).construct(
         theta=np.deg2rad(mlt_m),
         phi=np.deg2rad(colat_m),
         timeindex=time_m

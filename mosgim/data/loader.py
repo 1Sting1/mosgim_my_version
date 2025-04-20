@@ -14,52 +14,75 @@ from mosgim.geo.geo import HM
 from mosgim.geo.geo import sub_ionospheric
 
 
-class Loader():
+class Loader:
+    """Base class for loading TEC data from different sources."""
     
-    def __init__(self):
-        self.FIELDS = ['datetime', 'el', 'ipp_lat', 'ipp_lon', 'tec']
-        self.DTYPE = (object, float, float, float, float)
-        self.not_found_sites = []
+    def __init__(self) -> None:
+        self.fields = ['datetime', 'el', 'ipp_lat', 'ipp_lon', 'tec']
+        self.dtype = (object, float, float, float, float)
+        self.not_found_sites: list[str] = []
 
 class LoaderTxt(Loader):
+    """Loader for text-based TEC data files."""
     
-    def __init__(self, root_dir):
+    def __init__(self, root_dir: Path) -> None:
+        """
+        Initialize text loader.
+        
+        Args:
+            root_dir: Root directory containing TEC data files
+        """
         super().__init__()
-        self.dformat = "%Y-%m-%dT%H:%M:%S"
+        self.date_format = "%Y-%m-%dT%H:%M:%S"
         self.root_dir = root_dir
 
-    def get_files(self, rootdir):
+    def get_files(self, root_dir: Path) -> dict[str, list[Path]]:
         """
-        Root directroy must contain folders with site name 
-        Inside subfolders are *.dat files for every satellite
+        Get all data files from root directory.
+        
+        Root directory must contain folders with site name.
+        Inside subfolders are *.dat files for every satellite.
+        
+        Args:
+            root_dir: Directory to search for files
+            
+        Returns:
+            Dictionary mapping site names to lists of data file paths
+            
+        Raises:
+            ValueError: If site name in filename doesn't match directory
         """
         result = defaultdict(list)
-        for subdir, _, files in os.walk(rootdir):
+        for subdir, _, files in os.walk(root_dir):
             for filename in files:
                 filepath = Path(subdir) / filename
                 if str(filepath).endswith(".dat"):
                     site = filename[:4]
                     if site != subdir[-4:]:
-                        raise ValueError(f'{site} in {subdir}. wrong site name')
+                        raise ValueError(f'Site {site} in {subdir} has wrong site name')
                     result[site].append(filepath)
                 else:
-                    warn(f'{filepath} in {subdir} is not data file')
+                    warn(f'{filepath} in {subdir} is not a data file')
         for site in result:
             result[site].sort()
         return result
 
-    def load_data(self, filepath):
-        convert = lambda x: datetime.strptime(x.decode("utf-8"), self.dformat)
+    def load_data(self, filepath: Path) -> tuple[np.ndarray, Path]:
+        """
+        Load data from a single file.
+        
+        Args:
+            filepath: Path to data file
+            
+        Returns:
+            Tuple of (data array, filepath)
+        """
+        convert = lambda x: datetime.strptime(x.decode("utf-8"), self.date_format)
         data = np.genfromtxt(filepath, 
-                             comments='#', 
-                             names=self.FIELDS, 
-                             dtype=self.DTYPE,
-                             converters={"datetime": convert},  
-                             #unpack=True
-                             )
-
-        #tt = sec_of_day(data['datetime'])
-        #data = append_fields(data, 'sec_of_day', tt, np.float)
+                            comments='#', 
+                            names=self.fields, 
+                            dtype=self.dtype,
+                            converters={"datetime": convert})
         return data, filepath
     
     def __load_data_pool(self, filepath):
@@ -142,7 +165,7 @@ class LoaderHDF(Loader):
             for sat in hdf_file[site]:
                 sat_data = hdf_file[site][sat]
                 arr = np.empty((len(sat_data['tec']),), 
-                               list(zip(self.FIELDS,self.DTYPE)))
+                               list(zip(self.fields,self.dtype)))
                 el = sat_data['elevation'][:]
                 az = sat_data['azimuth'][:]
                 ts = sat_data['timestamp'][:]

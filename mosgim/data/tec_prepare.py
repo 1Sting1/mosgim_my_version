@@ -99,42 +99,70 @@ def process_data(data_generator):
     return all_data
 
 
-def get_continuos_intervals(data, maxgap=30, maxjump=1):
-    return getContInt(data['sec_of_day'][:], 
-                      data['tec'][:], 
-                      data['ipp_lon'][:], data['ipp_lat'][:], 
-                      data['el'][:],  
-                      maxgap=maxgap, maxjump=maxjump)
-
-
-def getContInt(times, tec, lon, lat, el,  maxgap=30, maxjump=1):
-    r = np.array(range(len(times)))
-    idx = np.isfinite(tec) & np.isfinite(lon) & np.isfinite(lat) & np.isfinite(el) & (el > 10.)
-    r = r[idx]
+def get_continuous_intervals(
+    times: np.ndarray, 
+    tec: np.ndarray, 
+    lon: np.ndarray, 
+    lat: np.ndarray, 
+    elevation: np.ndarray,
+    max_time_gap: float = 30,
+    max_tec_jump: float = 1,
+    min_elevation: float = 10.0
+) -> tuple[np.ndarray, list[tuple[int, int]]]:
+    """
+    Find continuous intervals in TEC data.
+    
+    Args:
+        times: Array of timestamps
+        tec: Array of TEC values
+        lon: Array of longitudes
+        lat: Array of latitudes
+        elevation: Array of elevation angles
+        max_time_gap: Maximum allowed time gap between measurements in seconds
+        max_tec_jump: Maximum allowed TEC value jump between measurements
+        min_elevation: Minimum elevation angle in degrees
+        
+    Returns:
+        Tuple of (valid indices array, list of continuous intervals)
+    """
+    indices = np.array(range(len(times)))
+    valid_data = (
+        np.isfinite(tec) & 
+        np.isfinite(lon) & 
+        np.isfinite(lat) & 
+        np.isfinite(elevation) & 
+        (elevation > min_elevation)
+    )
+    valid_indices = indices[valid_data]
     intervals = []
-    if len(r) == 0:
-        return idx, intervals
-    beginning = r[0]
-    last = r[0]
-    last_time = times[last]
-    for i in r[1:]:
-        if abs(times[i] - last_time) > maxgap or abs(tec[i] - tec[last]) > maxjump:
-            intervals.append((beginning, last))
-            beginning = i
-        last = i
-        last_time = times[last]
-        if i == r[-1]:
-            intervals.append((beginning, last))
-    return idx, intervals
+    
+    if len(valid_indices) == 0:
+        return valid_data, intervals
+        
+    interval_start = valid_indices[0]
+    last_index = valid_indices[0]
+    last_time = times[last_index]
+    
+    for current_index in valid_indices[1:]:
+        if (abs(times[current_index] - last_time) > max_time_gap or 
+            abs(tec[current_index] - tec[last_index]) > max_tec_jump):
+            intervals.append((interval_start, last_index))
+            interval_start = current_index
+        last_index = current_index
+        last_time = times[last_index]
+        if current_index == valid_indices[-1]:
+            intervals.append((interval_start, last_index))
+            
+    return valid_data, intervals
 
 def process_intervals(data, maxgap, maxjump, derivative, 
                       short = 3600, sparse = 600):
     result = defaultdict(list)
     tt = sec_of_day(data['datetime'])        
-    idx, intervals = getContInt(tt, 
+    idx, intervals = get_continuous_intervals(tt, 
                                 data['tec'], data['ipp_lon'],
                                 data['ipp_lat'], data['el'],  
-                                maxgap=maxgap, maxjump=maxjump)
+                                max_time_gap=maxgap, max_tec_jump=maxjump)
     #_, intervals = get_continuos_intervals(data, maxgap=maxgap, maxjump=maxjump)
     for start, fin in intervals:
 

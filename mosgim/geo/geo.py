@@ -1,3 +1,5 @@
+"""Geometric calculations for solar and ionospheric positions."""
+
 from numpy import sin, cos, pi, arctan2, arcsin, floor, deg2rad
 
 RE = 6371.2

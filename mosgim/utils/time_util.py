@@ -1,3 +1,5 @@
+"""Utility functions for time-related operations."""
+
 import numpy as np
 
 @np.vectorize

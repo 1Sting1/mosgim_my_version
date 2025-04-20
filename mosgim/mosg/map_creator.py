@@ -4,6 +4,8 @@ import concurrent.futures
 import itertools
 import datetime
 import gc
+from enum import Enum
+from dataclasses import dataclass
 
 from scipy.linalg import solve
 from scipy.sparse import lil_matrix, csr_matrix
@@ -14,16 +16,91 @@ from mosgim.geo.geomag import geo2mag
 from mosgim.geo.geomag import geo2modip
 from mosgim.data.tec_prepare import MagneticCoordType
 
-RE = 6371200.
-IPPh = 450000.
-nbig = 15  # max order of spherical harmonic expansion
-mbig = 15  # max degree of spherical harmonic expansion (0 <= mbig <= nbig)
-nT = 24  # number of time steps
-ndays = 1
-sigma0 = 0.075  # TECU - measurement noise at zenith
-sigma_v = 0.015  # TECU - allowed variability for each coef between two consecutive maps
+# Physical constants
+class PhysicalConstants:
+    EARTH_RADIUS = 6371200.  # meters
+    IPP_HEIGHT = 450000.     # meters
+    SIGMA_ZENITH = 0.075     # TECU - measurement noise at zenith
+    SIGMA_VARIABILITY = 0.015  # TECU - allowed variability between consecutive maps
+
+# Spherical harmonics parameters
+@dataclass
+class SphericalHarmonicsParams:
+    MAX_ORDER = 15  # max order of spherical harmonic expansion
+    MAX_DEGREE = 15  # max degree of spherical harmonic expansion
+    TIME_STEPS = 24  # number of time steps
+    DAYS = 1
+
+# Memory management
+class MemoryConstants:
+    GB_CHUNK_SIZE = 15000  # Size of chunks for memory management
+
+def calculate_mapping_function(elevation_angle: float) -> float:
+    """
+    Calculate mapping function for elevation angle.
+    
+    Args:
+        elevation_angle: Elevation angle in radians
+        
+    Returns:
+        Mapping function value
+    """
+    return 1. / np.sqrt(1 - (PhysicalConstants.EARTH_RADIUS * 
+                            np.cos(elevation_angle) / 
+                            (PhysicalConstants.EARTH_RADIUS + PhysicalConstants.IPP_HEIGHT)) ** 2)
+
+def calculate_spherical_coefficients(
+    M: np.ndarray, 
+    N: np.ndarray, 
+    theta: float, 
+    phi: float, 
+    slant_factor: float
+) -> np.ndarray:
+    """
+    Calculate spherical harmonic coefficients.
+    
+    Args:
+        M: Meshgrid of harmonics degrees
+        N: Meshgrid of harmonics orders
+        theta: LT of IPP in radians
+        phi: Co-latitude of IPP in radians
+        slant_factor: Slant factor for mapping function
+        
+    Returns:
+        Array of coefficients
+    """
+    num_coefficients = len(M)
+    coefficients = np.zeros(num_coefficients)
+    
+    # Calculate complex spherical harmonics
+    spherical_harmonics = sp.sph_harm(np.abs(M), N, theta, phi)
+    
+    # Convert to real basis according to scipy normalization
+    coefficients[M < 0] = (spherical_harmonics[M < 0].imag * 
+                          np.sqrt(2) * (-1.) ** M[M < 0])
+    coefficients[M > 0] = (spherical_harmonics[M > 0].real * 
+                          np.sqrt(2) * (-1.) ** M[M > 0])
+    coefficients[M == 0] = spherical_harmonics[M == 0].real
+    
+    return coefficients * slant_factor
+
+# Vectorize the coefficient calculation for efficiency
+vector_coefficients = np.vectorize(
+    calculate_spherical_coefficients, 
+    excluded=['M','N'], 
+    otypes=[np.ndarray]
+)
+
+RE = PhysicalConstants.EARTH_RADIUS
+IPPh = PhysicalConstants.IPP_HEIGHT
+nbig = SphericalHarmonicsParams.MAX_ORDER
+mbig = SphericalHarmonicsParams.MAX_DEGREE
+nT = SphericalHarmonicsParams.TIME_STEPS
+ndays = SphericalHarmonicsParams.DAYS
+sigma0 = PhysicalConstants.SIGMA_ZENITH
+sigma_v = PhysicalConstants.SIGMA_VARIABILITY
  
-GB_CHUNK = 15000 
+GB_CHUNK = MemoryConstants.GB_CHUNK_SIZE 
 
 def MF(el):
     """

@@ -1,3 +1,29 @@
+"""Geographic coordinate transformations and time utilities for MOSGIM.
+
+This module provides functions for converting between different coordinate systems
+commonly used in geomagnetic studies:
+- Geographic to Geomagnetic coordinates
+- Geographic to Modified Dip (MODIP) coordinates
+- Calculation of magnetic field inclination
+- Subsolar point calculations
+
+It also includes utilities for time-based calculations and data processing
+for TEC (Total Electron Content) observations.
+
+Key Functions:
+    - subsol: Calculate subsolar point coordinates
+    - geo2mag: Convert geographic to geomagnetic coordinates
+    - geo2modip: Convert geographic to modified dip coordinates
+    - inclination: Calculate magnetic field inclination
+    - sec_of_day: Convert datetime to seconds since start of day
+    - getContInt: Extract continuous intervals from TEC data
+
+Dependencies:
+    - numpy
+    - datetime
+    - scipy.signal (for Savitzky-Golay filtering)
+"""
+
 import numpy as np
 from datetime import datetime
 from scipy.signal import savgol_filter
@@ -204,9 +230,19 @@ geo2modip = np.vectorize(geo2modip)
 
 
 
-def sec_of_day(time):
-    return (time - time.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
-sec_of_day = np.vectorize(sec_of_day)
+def sec_of_day(dt: datetime) -> float:
+    """Convert datetime object to seconds since start of day.
+
+    Args:
+        dt (datetime): Input datetime object
+
+    Returns:
+        float: Number of seconds elapsed since start of day (00:00:00)
+    """
+    return dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond * 1e-6
+
+# Vectorized version for numpy array inputs
+sec_of_day_vec = np.vectorize(sec_of_day)
 
 
 def sec_of_interval(time, time0):
